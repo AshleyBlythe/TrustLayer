@@ -33,6 +33,27 @@ MAX_RESPONSE_BYTES = 1 * 1024 * 1024  # 1 MB per page
 USER_AGENT = "TrustLayer-Scanner/0.1 (build-readiness; not a vulnerability scanner)"
 
 _LINK_RE = re.compile(r'href=["\']([^"\'#?][^"\']*)["\']', re.IGNORECASE)
+
+
+class _CrossOriginRedirect(Exception):
+    """Raised by _SameOriginRedirectHandler when a redirect leaves the origin."""
+    def __init__(self, from_url: str, to_url: str) -> None:
+        self.from_url = from_url
+        self.to_url = to_url
+
+
+class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Intercept redirects and abort before following cross-origin ones."""
+
+    def __init__(self, start_url: str) -> None:
+        self._start_url = start_url
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _same_origin(self._start_url, newurl):
+            raise _CrossOriginRedirect(req.full_url, newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 _HEADER_CHECKS = {
     "access-control-allow-origin": ("CORS-001", "Permissive CORS header on URL", Severity.MEDIUM),
     "server": ("URL-010", "Server version disclosure header", Severity.INFO),
@@ -68,6 +89,7 @@ def scan_url(start_url: str, result: Optional[ScanResult] = None) -> ScanResult:
     # queue items: (url, depth)
     queue: deque[tuple[str, int]] = deque([(start_url, 0)])
     visited: set[str] = set()
+    opener = urllib.request.build_opener(_SameOriginRedirectHandler(start_url))
 
     while queue and len(visited) < MAX_PAGES:
         url, depth = queue.popleft()
@@ -77,31 +99,8 @@ def scan_url(start_url: str, result: Optional[ScanResult] = None) -> ScanResult:
 
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=CONNECT_TIMEOUT) as resp:
-                # Check for cross-origin redirect
+            with opener.open(req, timeout=CONNECT_TIMEOUT) as resp:
                 final_url: str = resp.geturl()
-                if not _same_origin(start_url, final_url):
-                    result.findings.append(Finding(
-                        check_id="URL-001",
-                        title="Cross-origin redirect detected",
-                        severity=Severity.INFO,
-                        confidence=Confidence.OBSERVED,
-                        explanation=(
-                            f"Request to {url!r} was redirected to a different origin "
-                            f"({urllib.parse.urlparse(final_url).netloc}). "
-                            "TrustLayer did not follow this redirect."
-                        ),
-                        who_could_use="N/A — informational",
-                        what_they_access="N/A",
-                        possible_damage="Potential open redirect if user-controlled",
-                        likelihood="Low",
-                        fastest_fix="Audit redirect logic to ensure destinations are allow-listed",
-                        ask_human=False,
-                        evidence=f"From: {redact(url)}\nTo: {redact(final_url)}",
-                        source=redact(url),
-                    ))
-                    result.scanned_urls += 1
-                    continue
 
                 # Response-size guard
                 raw = resp.read(MAX_RESPONSE_BYTES + 1)
@@ -179,6 +178,27 @@ def scan_url(start_url: str, result: Optional[ScanResult] = None) -> ScanResult:
                         if candidate and candidate not in visited and _same_origin(start_url, candidate):
                             queue.append((candidate, depth + 1))
 
+        except _CrossOriginRedirect as exc:
+            result.findings.append(Finding(
+                check_id="URL-001",
+                title="Cross-origin redirect detected",
+                severity=Severity.INFO,
+                confidence=Confidence.OBSERVED,
+                explanation=(
+                    f"Request to this URL was redirected to a different origin "
+                    f"({urllib.parse.urlparse(exc.to_url).netloc}). "
+                    "TrustLayer aborted the request before following the redirect."
+                ),
+                who_could_use="N/A — informational",
+                what_they_access="N/A",
+                possible_damage="Potential open redirect if user-controlled",
+                likelihood="Low",
+                fastest_fix="Audit redirect logic to ensure destinations are allow-listed",
+                ask_human=False,
+                evidence=f"From: {redact(exc.from_url)}\nTo: {redact(exc.to_url)}",
+                source=redact(exc.from_url),
+            ))
+            result.scanned_urls += 1
         except urllib.error.HTTPError as exc:
             result.errors.append(f"HTTP {exc.code} for {url}")
             result.scanned_urls += 1

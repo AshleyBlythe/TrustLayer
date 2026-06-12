@@ -2,7 +2,9 @@
 
 import unittest
 from unittest.mock import MagicMock, patch
-from trustlayer.url_scanner import _same_origin, _normalise_url, scan_url
+from trustlayer.url_scanner import (
+    _same_origin, _normalise_url, scan_url, _CrossOriginRedirect,
+)
 
 
 class TestSameOrigin(unittest.TestCase):
@@ -38,38 +40,40 @@ class TestNormaliseUrl(unittest.TestCase):
 
 
 class TestCrossOriginRedirect(unittest.TestCase):
-    def _make_mock_response(self, final_url, body=b"<html></html>",
-                             headers=None, status=200):
-        mock_resp = MagicMock()
-        mock_resp.geturl.return_value = final_url
-        mock_resp.read.return_value = body
-        mock_resp.headers = MagicMock()
-        mock_resp.headers.get.return_value = "text/html"
-        mock_resp.headers.__iter__ = MagicMock(return_value=iter([]))
-        if headers:
-            mock_resp.headers.get.side_effect = lambda k, d="": headers.get(k.lower(), d)
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        return mock_resp
-
     def test_cross_origin_redirect_noted(self):
-        with patch("urllib.request.urlopen") as mock_open:
-            mock_resp = self._make_mock_response("https://other.com/page")
-            mock_open.return_value = mock_resp
+        # Simulate the handler raising _CrossOriginRedirect before any response
+        with patch("trustlayer.url_scanner.urllib.request.build_opener") as mock_build:
+            mock_opener = MagicMock()
+            mock_opener.open.side_effect = _CrossOriginRedirect(
+                "https://example.com/", "https://other.com/login"
+            )
+            mock_build.return_value = mock_opener
             result = scan_url("https://example.com")
         redirect_findings = [f for f in result.findings if f.check_id == "URL-001"]
         self.assertTrue(len(redirect_findings) >= 1)
 
     def test_cross_origin_not_followed(self):
-        with patch("urllib.request.urlopen") as mock_open:
-            mock_resp = self._make_mock_response("https://other.com/page")
-            mock_open.return_value = mock_resp
+        # Redirect is aborted by the handler — only 1 URL counted, nothing enqueued
+        with patch("trustlayer.url_scanner.urllib.request.build_opener") as mock_build:
+            mock_opener = MagicMock()
+            mock_opener.open.side_effect = _CrossOriginRedirect(
+                "https://example.com/", "https://other.com/login"
+            )
+            mock_build.return_value = mock_opener
             result = scan_url("https://example.com")
-        # Should only have crawled 1 URL (the redirect target is different origin)
         self.assertEqual(result.scanned_urls, 1)
 
 
 class TestMalformedOversizedResponse(unittest.TestCase):
+    def _patch_opener(self, side_effect=None, return_value=None):
+        mock_build = patch("trustlayer.url_scanner.urllib.request.build_opener")
+        mock_opener = MagicMock()
+        if side_effect is not None:
+            mock_opener.open.side_effect = side_effect
+        else:
+            mock_opener.open.return_value = return_value
+        return mock_build, mock_opener
+
     def test_oversized_response_truncated(self):
         large_body = b"A" * (1024 * 1024 + 100)
         mock_resp = MagicMock()
@@ -79,22 +83,31 @@ class TestMalformedOversizedResponse(unittest.TestCase):
         mock_resp.headers.get.return_value = "text/html"
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
-        with patch("urllib.request.urlopen", return_value=mock_resp):
+        mock_build, mock_opener = self._patch_opener(return_value=mock_resp)
+        with mock_build as mb:
+            mb.return_value = mock_opener
             result = scan_url("https://example.com/")
         self.assertTrue(any("truncated" in e for e in result.errors))
 
     def test_http_error_recorded(self):
         import urllib.error
-        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
-            "https://example.com/404", 404, "Not Found", {}, None
-        )):
+        mock_build, mock_opener = self._patch_opener(
+            side_effect=urllib.error.HTTPError(
+                "https://example.com/404", 404, "Not Found", {}, None
+            )
+        )
+        with mock_build as mb:
+            mb.return_value = mock_opener
             result = scan_url("https://example.com/404")
         self.assertTrue(any("404" in e for e in result.errors))
 
     def test_url_error_recorded(self):
         import urllib.error
-        with patch("urllib.request.urlopen",
-                   side_effect=urllib.error.URLError("connection refused")):
+        mock_build, mock_opener = self._patch_opener(
+            side_effect=urllib.error.URLError("connection refused")
+        )
+        with mock_build as mb:
+            mb.return_value = mock_opener
             result = scan_url("https://unreachable.invalid/")
         self.assertTrue(any("URL error" in e for e in result.errors))
 
