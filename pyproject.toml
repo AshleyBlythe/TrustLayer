@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "trustlayer"
+version = "0.1.0"
+description = "Build-literacy and launch-readiness assistant for non-security builders"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+keywords = ["security", "build-readiness", "vibe-coding", "ai-apps", "privacy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.scripts]
+trustlayer = "trustlayer.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/AshleyBlythe/TrustLayer"
+Issues = "https://github.com/AshleyBlythe/TrustLayer/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["trustlayer*"]
