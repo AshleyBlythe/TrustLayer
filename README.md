@@ -77,9 +77,6 @@ See [docs/SAFETY.md](docs/SAFETY.md) for the full safety policy.
 ## Development
 
 ```bash
-# Run tests
-python -m pytest tests/
-# or with unittest
 python -m unittest discover tests/
 ```
 
@@ -91,4 +88,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to get involved.
 
 Apache-2.0 — see [LICENSE](LICENSE).
 
-A [FLARE](https://github.com/AshleyBlythe/TrustLayer) open-source project.
+A [FLARE Collective](https://github.com/AshleyBlythe/TrustLayer) open-source project.
