@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 import urllib.error
 import urllib.parse
+from pathlib import Path
 import urllib.request
 from collections import deque
 from typing import List, Optional
@@ -96,8 +97,8 @@ def scan_url(start_url: str, result: Optional[ScanResult] = None) -> ScanResult:
                         likelihood="Low",
                         fastest_fix="Audit redirect logic to ensure destinations are allow-listed",
                         ask_human=False,
-                        evidence=f"From: {url}\nTo: {redact(final_url)}",
-                        source=url,
+                        evidence=f"From: {redact(url)}\nTo: {redact(final_url)}",
+                        source=redact(url),
                     ))
                     result.scanned_urls += 1
                     continue
@@ -167,7 +168,9 @@ def scan_url(start_url: str, result: Optional[ScanResult] = None) -> ScanResult:
                 result.findings.extend(check_cors(lines, url))
                 result.findings.extend(check_admin_routes(lines, url))
                 result.findings.extend(check_debug_routes(lines, url))
-                result.findings.extend(check_api_docs(lines, final_url, url))  # type: ignore[arg-type]
+                result.findings.extend(check_api_docs(
+                    lines, Path(urllib.parse.urlparse(final_url).path), url
+                ))
 
                 # Enqueue links for next depth
                 if depth < MAX_DEPTH:
