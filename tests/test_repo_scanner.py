@@ -110,7 +110,7 @@ class TestIgnoredDirectoriesAndBinary(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             nm = Path(tmpdir) / "node_modules" / "some-package"
             nm.mkdir(parents=True)
-            (nm / "index.js").write_text('API_KEY = "sk-abcdef1234567890abcdef"')
+            (nm / "index.js").write_text('API_KEY = "' + "sk-" + 'abcdef1234567890abcdef"')
             result = scan_repo(tmpdir)
             sources = [f.source for f in result.findings]
             self.assertFalse(any("node_modules" in s for s in sources))

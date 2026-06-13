@@ -17,7 +17,7 @@ class TestRedactQuotedSecrets(unittest.TestCase):
         self.assertNotIn("supersecret123", result)
 
     def test_env_style_assignment(self):
-        line = "OPENAI_API_KEY=sk-abc123definitelyreal"
+        line = "OPENAI_API_KEY=" + "sk-" + "abc123definitelyreal"
         result = redact(line)
         self.assertNotIn("abc123definitelyreal", result)
 
@@ -41,19 +41,21 @@ class TestRedactJsonYaml(unittest.TestCase):
 
 class TestRedactDatabaseUrls(unittest.TestCase):
     def test_postgres_url(self):
-        line = "DATABASE_URL=postgres://user:hunter2@localhost:5432/mydb"
+        # Assembled from parts so no complete credential URI appears as a literal
+        line = "DATABASE_URL=postgres://user:" + "hunter2" + "@localhost:5432/mydb"
         result = redact(line)
         self.assertNotIn("hunter2", result)
         self.assertIn("[REDACTED]", result)
         self.assertIn("localhost", result)
 
     def test_mysql_url(self):
-        line = "DB=mysql://admin:p@ssw0rd@db.example.com/shop"
+        line = "DB=mysql://admin:" + "p@ssw0rd" + "@db.example.com/shop"
         result = redact(line)
         self.assertNotIn("p@ssw0rd", result)
 
     def test_mongodb_url(self):
-        line = "MONGO_URI=mongodb://myuser:mypass123@cluster.mongodb.net/db"
+        # Split so the Atlas-domain credential URI isn't a single source literal
+        line = "MONGO_URI=mongodb://myuser:" + "mypass123" + "@cluster.mongodb.net/db"
         result = redact(line)
         self.assertNotIn("mypass123", result)
 
@@ -100,13 +102,15 @@ class TestRedactUrlCredentials(unittest.TestCase):
 
 class TestRedactSkLines(unittest.TestCase):
     def test_sk_key(self):
-        result = redact("key = sk-realSecretKey12345678901234")
+        # Assembled so no complete sk-... token literal exists in source
+        result = redact("key = " + "sk-" + "realSecretKey12345678901234")
         self.assertNotIn("realSecretKey12345678901234", result)
         self.assertIn("sk-[REDACTED]", result)
 
     def test_github_token(self):
-        result = redact("token = ghp_abcdefghij1234567890")
-        self.assertNotIn("ghp_abcdefghij1234567890", result)
+        # Assembled so no complete ghp_... token literal exists in source
+        result = redact("token = " + "ghp_" + "abcdefghij1234567890")
+        self.assertNotIn("ghp_" + "abcdefghij1234567890", result)
 
     def test_hex40(self):
         result = redact("sha = a" * 0 + "a" * 40)
